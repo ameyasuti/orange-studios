@@ -2,80 +2,10 @@
 
 import { useMemo, useState } from "react";
 import styles from "./orange.module.css";
+import { Deliverable } from "../lib/studio/types";
+import { useStudioData } from "../lib/studio/useStudioData";
 
-type Workspace = {
-  id: string;
-  name: string;
-  client: string;
-  driveRootStatus: "connected" | "not_connected";
-};
-
-type Project = {
-  id: string;
-  workspaceId: string;
-  name: string;
-  updatedAt: string;
-};
-
-type Deliverable = {
-  id: string;
-  projectId: string;
-  title: string;
-  type: "Reel" | "Long-form" | "Film";
-  duration: string;
-  stage: "Review Queue" | "In Production" | "Ready to Publish";
-  approvalsNeeded: boolean;
-};
-
-const seed = {
-  workspaces: [
-    { id: "ws_ov", name: "Orange Videos", client: "Orange", driveRootStatus: "not_connected" },
-    { id: "ws_acme", name: "ACME Beverages", client: "ACME", driveRootStatus: "connected" },
-  ] satisfies Workspace[],
-  projects: [
-    { id: "p1", workspaceId: "ws_ov", name: "Feb Reels Sprint", updatedAt: "Today" },
-    { id: "p2", workspaceId: "ws_ov", name: "Brand Film — Concept", updatedAt: "Yesterday" },
-    { id: "p3", workspaceId: "ws_acme", name: "Launch Campaign", updatedAt: "Today" },
-  ] satisfies Project[],
-  deliverables: [
-    {
-      id: "d1",
-      projectId: "p1",
-      title: "Reel 01 — Hook Variants",
-      type: "Reel",
-      duration: "15s",
-      stage: "Review Queue",
-      approvalsNeeded: true,
-    },
-    {
-      id: "d2",
-      projectId: "p1",
-      title: "Reel 02 — Founder Story",
-      type: "Reel",
-      duration: "30s",
-      stage: "In Production",
-      approvalsNeeded: false,
-    },
-    {
-      id: "d3",
-      projectId: "p1",
-      title: "Reel 03 — Offer + CTA",
-      type: "Reel",
-      duration: "20s",
-      stage: "Ready to Publish",
-      approvalsNeeded: true,
-    },
-    {
-      id: "d4",
-      projectId: "p3",
-      title: "Launch Teaser — V1",
-      type: "Reel",
-      duration: "15s",
-      stage: "Review Queue",
-      approvalsNeeded: true,
-    },
-  ] satisfies Deliverable[],
-};
+const stages: Deliverable["stage"][] = ["Review Queue", "In Production", "Ready to Publish"];
 
 function countByStage(items: Deliverable[]) {
   return items.reduce(
@@ -88,21 +18,35 @@ function countByStage(items: Deliverable[]) {
 }
 
 export default function Home() {
-  const [workspaceId, setWorkspaceId] = useState(seed.workspaces[0]?.id ?? "");
-  const projects = useMemo(() => seed.projects.filter((p) => p.workspaceId === workspaceId), [workspaceId]);
-  const [projectId, setProjectId] = useState(() => {
-    const initialWs = seed.workspaces[0]?.id;
-    const firstProject = seed.projects.find((p) => p.workspaceId === initialWs);
-    return firstProject?.id ?? "";
-  });
+  const { workspaces, projects, deliverables, source, loading, error } = useStudioData();
 
-  const deliverables = useMemo(() => seed.deliverables.filter((d) => d.projectId === projectId), [projectId]);
-  const byStage = useMemo(() => countByStage(deliverables), [deliverables]);
+  const [workspaceId, setWorkspaceId] = useState<string | undefined>();
+  const [projectId, setProjectId] = useState<string | undefined>();
 
-  const ws = seed.workspaces.find((w) => w.id === workspaceId);
-  const prj = seed.projects.find((p) => p.id === projectId);
+  const resolvedWorkspaceId = useMemo(() => {
+    if (workspaceId && workspaces.some((w) => w.id === workspaceId)) {
+      return workspaceId;
+    }
+    return workspaces[0]?.id;
+  }, [workspaceId, workspaces]);
 
-  const stages: Deliverable["stage"][] = ["Review Queue", "In Production", "Ready to Publish"];
+  const workspaceProjects = useMemo(() => projects.filter((p) => p.workspaceId === resolvedWorkspaceId), [projects, resolvedWorkspaceId]);
+
+  const resolvedProjectId = useMemo(() => {
+    if (projectId && workspaceProjects.some((p) => p.id === projectId)) {
+      return projectId;
+    }
+    return workspaceProjects[0]?.id;
+  }, [projectId, workspaceProjects]);
+
+  const projectDeliverables = useMemo(
+    () => deliverables.filter((d) => d.projectId === resolvedProjectId),
+    [deliverables, resolvedProjectId]
+  );
+  const byStage = useMemo(() => countByStage(projectDeliverables), [projectDeliverables]);
+
+  const ws = workspaces.find((w) => w.id === resolvedWorkspaceId);
+  const prj = projects.find((p) => p.id === resolvedProjectId);
 
   return (
     <div className={styles.page}>
@@ -110,23 +54,29 @@ export default function Home() {
         <header className={styles.topbar}>
           <div className={styles.brand}>
             <div>Orange Studios</div>
-            <div className={styles.badge}>MVP shell (stub data)</div>
+            <div className={styles.badge}>{source === "supabase" ? "Live Supabase" : "MVP shell (stub data)"}</div>
           </div>
           <div className={styles.stats}>
             <div className={styles.stat}>
               <div className={styles.statLabel}>Workspace</div>
-              <div className={styles.statValue}>{ws?.name ?? "—"}</div>
+              <div className={styles.statValue}>{loading ? "…" : ws?.name ?? "—"}</div>
             </div>
             <div className={styles.stat}>
               <div className={styles.statLabel}>Project</div>
-              <div className={styles.statValue}>{prj?.name ?? "—"}</div>
+              <div className={styles.statValue}>{loading ? "…" : prj?.name ?? "—"}</div>
             </div>
             <div className={styles.stat}>
               <div className={styles.statLabel}>Review queue</div>
-              <div className={styles.statValue}>{byStage["Review Queue"] ?? 0}</div>
+              <div className={styles.statValue}>{loading ? "…" : byStage["Review Queue"] ?? 0}</div>
             </div>
           </div>
         </header>
+
+        {error && (
+          <div className={styles.small} style={{ color: "#f97316", margin: "4px 24px" }}>
+            {error}
+          </div>
+        )}
 
         <main className={styles.main}>
           {/* LEFT: Workspaces + Projects */}
@@ -141,15 +91,16 @@ export default function Home() {
             <div className={styles.panelBody}>
               <select
                 className={styles.select}
-                value={workspaceId}
+                value={resolvedWorkspaceId ?? ""}
                 onChange={(e) => {
                   const nextWs = e.target.value;
                   setWorkspaceId(nextWs);
-                  const firstProject = seed.projects.find((p) => p.workspaceId === nextWs);
-                  setProjectId(firstProject?.id ?? "");
+                  const firstProject = projects.find((p) => p.workspaceId === nextWs);
+                  setProjectId(firstProject?.id);
                 }}
+                disabled={!workspaces.length}
               >
-                {seed.workspaces.map((w) => (
+                {workspaces.map((w) => (
                   <option key={w.id} value={w.id}>
                     {w.name}
                   </option>
@@ -157,10 +108,10 @@ export default function Home() {
               </select>
 
               <div className={styles.list}>
-                {projects.map((p) => (
+                {workspaceProjects.map((p) => (
                   <div
                     key={p.id}
-                    className={[styles.item, p.id === projectId ? styles.itemActive : ""].join(" ")}
+                    className={[styles.item, p.id === resolvedProjectId ? styles.itemActive : ""].join(" ")}
                     onClick={() => setProjectId(p.id)}
                     role="button"
                     tabIndex={0}
@@ -169,7 +120,7 @@ export default function Home() {
                     <div className={styles.itemMeta}>Updated: {p.updatedAt}</div>
                   </div>
                 ))}
-                {!projects.length && <div className={styles.small}>No projects yet for this workspace.</div>}
+                {!workspaceProjects.length && <div className={styles.small}>No projects yet for this workspace.</div>}
               </div>
 
               <div className={styles.kpi}>
@@ -204,7 +155,7 @@ export default function Home() {
 
             <div className={styles.columns}>
               {stages.map((stage) => {
-                const items = deliverables.filter((d) => d.stage === stage);
+                const items = projectDeliverables.filter((d) => d.stage === stage);
                 return (
                   <div key={stage} className={styles.col}>
                     <div className={styles.colHead}>
@@ -221,9 +172,11 @@ export default function Home() {
                         </div>
                       </div>
                     ))}
-                    {!items.length && <div className={styles.small} style={{ padding: 10 }}>
-                      Nothing here yet.
-                    </div>}
+                    {!items.length && (
+                      <div className={styles.small} style={{ padding: 10 }}>
+                        Nothing here yet.
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -250,7 +203,7 @@ export default function Home() {
               </div>
               <div className={styles.inspectorRow}>
                 <span>Deliverables</span>
-                <span>{deliverables.length}</span>
+                <span>{projectDeliverables.length}</span>
               </div>
 
               <div className={styles.kpi}>
